@@ -1,0 +1,256 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// USUÁRIOS, PERFIS E PERMISSÕES (RBAC)
+// ==========================================
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  active    Boolean  @default(true)
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  logs          AuditLog[]
+  notifications Notification[]
+}
+
+model Profile {
+  id          String       @id @default(uuid())
+  name        String       @unique // e.g. Admin, Operador, Financeiro
+  permissions Permission[]
+  users       User[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Permission {
+  id        String   @id @default(uuid())
+  module    String   // e.g. PROCESSES, FINANCE
+  action    String   // e.g. READ, WRITE, DELETE
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([module, action, profileId])
+}
+
+// ==========================================
+// CADASTROS BASE DA LOGÍSTICA
+// ==========================================
+
+model Customer {
+  id        String    @id @default(uuid())
+  name      String
+  cnpj      String    @unique
+  email     String
+  contact   String
+  processes Process[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Driver {
+  id        String    @id @default(uuid())
+  name      String
+  cpf       String    @unique
+  cnh       String
+  phone     String
+  processes Process[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Carrier { // Transportadora
+  id        String    @id @default(uuid())
+  name      String
+  cnpj      String    @unique
+  contact   String
+  email     String
+  processes Process[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Shipowner { // Armador
+  id          String    @id @default(uuid())
+  name        String    @unique
+  portalUrl   String?
+  accessType  String?
+  returnLink  String?
+  notes       String?
+  processes   Process[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Terminal {
+  id        String    @id @default(uuid())
+  name      String    @unique
+  city      String?
+  contact   String?
+  processes Process[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+// ==========================================
+// CORE OPERACIONAL (TMS/ERP)
+// ==========================================
+
+model Process {
+  id             String       @id @default(uuid())
+  registryNumber String       @unique // e.g. REG-001
+  processNumber  String?      // e.g. PR-2026/89
+  status         String       @default("Pendente") // Pendente, Agendado, Em Trânsito, Entregue, Devolvido, Falha
+  
+  customerId     String
+  customer       Customer     @relation(fields: [customerId], references: [id])
+  
+  containerId    String?      @unique
+  container      Container?   @relation(fields: [containerId], references: [id])
+  
+  shipownerId    String?
+  shipowner      Shipowner?   @relation(fields: [shipownerId], references: [id])
+  
+  driverId       String?
+  driver         Driver?      @relation(fields: [driverId], references: [id])
+  
+  carrierId      String?
+  carrier        Carrier?     @relation(fields: [carrierId], references: [id])
+  
+  terminalId     String?
+  terminal       Terminal?    @relation(fields: [terminalId], references: [id])
+
+  freight        Freight?
+  return         ReturnFlow?
+
+  pickupDate     DateTime?
+  deliveryDate   DateTime?
+  notes          String?
+
+  uploads        Upload[]
+  webhookEvents  WebhookEvent[]
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+model Container {
+  id           String   @id @default(uuid())
+  containerNum String   @unique // e.g. MSCU9281736
+  type         String   // 20GP, 40HQ
+  process      Process?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Freight { // Fretes e Pagamentos
+  id              String   @id @default(uuid())
+  processId       String   @unique
+  process         Process  @relation(fields: [processId], references: [id], onDelete: Cascade)
+  freightValue    Decimal  @default(0.0)
+  driverPayment   Decimal  @default(0.0)
+  loadingValue    Decimal  @default(0.0)
+  isDriverPaid    Boolean  @default(false)
+  payments        Payment[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Payment {
+  id          String   @id @default(uuid())
+  freightId   String
+  freight     Freight  @relation(fields: [freightId], references: [id], onDelete: Cascade)
+  amount      Decimal
+  paymentDate DateTime
+  status      String   @default("Pending") // Pending, Completed, Failed
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ReturnFlow { // Devoluções
+  id              String   @id @default(uuid())
+  processId       String   @unique
+  process         Process  @relation(fields: [processId], references: [id], onDelete: Cascade)
+  emptyReturnDate DateTime?
+  status          String   @default("Pending")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// ==========================================
+// INFRAESTRUTURA E FERRAMENTAS
+// ==========================================
+
+model Upload {
+  id             String   @id @default(uuid())
+  fileName       String
+  fileUrl        String
+  documentType   String   // DUIMP, BL, NOTA_FISCAL, etc.
+  status         String   @default("Pendente") // Pendente, Processando, Sucesso, Erro
+  processId      String?
+  process        Process? @relation(fields: [processId], references: [id], onDelete: SetNull)
+  extractedData  Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model OCRRule {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  active      Boolean  @default(true)
+  keywords    String[] // Array of string keywords
+  fields      Json     // Array of CustomFieldOCR
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model WebhookEvent {
+  id             String   @id @default(uuid())
+  processId      String?
+  process        Process? @relation(fields: [processId], references: [id], onDelete: SetNull)
+  targetUrl      String
+  payload        Json
+  responseStatus Int?
+  responseBody   String?
+  success        Boolean  @default(false)
+  createdAt      DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  type      String   @default("INFO") // INFO, WARNING, ERROR
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String   // Qual tabela/modelo sofreu a ação
+  entityId  String?
+  changes   Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+}
