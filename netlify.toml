@@ -1,0 +1,70 @@
+# ============================================
+# Netlify Configuration — Império Ecolog Logística
+# ============================================
+
+[build]
+  # Comando de build do Vite (apenas frontend)
+  command = "npm run build:netlify"
+  # Pasta de saída do Vite
+  publish = "dist"
+  # Pasta das Netlify Functions (serverless)
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "18"
+
+# ============================================
+# Redirects / Proxies
+# ============================================
+
+# Redirecionar chamadas /api/* para as Netlify Functions
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+  force = true
+
+# SPA fallback: qualquer rota não encontrada retorna index.html
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# ============================================
+# Funções Serverless
+# ============================================
+
+[functions]
+  node_bundler = "esbuild"
+  # Timeout em segundos (máx 26s no plano gratuito)
+  [functions."ocr"]
+    timeout = 26
+
+# ============================================
+# Headers de Segurança
+# ============================================
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-XSS-Protection = "1; mode=block"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+# Cache de assets estáticos
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# ============================================
+# Dev Server (netlify dev)
+# ============================================
+
+[dev]
+  command = "npx vite"
+  port = 3000
+  targetPort = 5173
+  autoLaunch = false
